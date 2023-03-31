@@ -7,7 +7,7 @@ Keep in mind that this application is performing a one-way sync from IMDb to Tra
 There are 3 possible modes to run this application and more details can be found in the [.env.example](.env.example) file.  
 As much as I wanted to provide a two-way sync functionality, this will not be possible until IMDb decides to expose a public API.
 
-# Usage
+# Usage 
 The application can be setup to run automatically, based on a custom schedule (_default: once every 3 hours_) using 
 `GitHub Actions` or locally on your machine. Follow the relevant section below, based on how you want to use the application. 
 
