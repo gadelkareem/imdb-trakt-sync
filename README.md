@@ -33,6 +33,6 @@ to automatically trigger it every 3 hours
 3. Make a copy of the [.env.example](.env.example) file and name it `.env`
 4. Populate all the environment variables in that file using the existing values as reference
 5. Make sure you have GoLang installed on your machine. If you do not have it, [this is how you can install it](https://go.dev/doc/install).
-6. Open a terminal window in the repository folder and run the application using the command `go run cmd/syncer/main.go`
+6. Open a terminal window in the repository folder and run the application using the command `go run cmd/syncer/main.go` 
 
  
