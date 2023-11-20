@@ -36,3 +36,4 @@ to automatically trigger it every 3 hours
 6. Open a terminal window in the repository folder and run the application using the command `go run cmd/syncer/main.go` 
 
  
+ 
