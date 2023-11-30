@@ -2,14 +2,15 @@ package syncer
 
 import (
 	"fmt"
+	"log/slog"
+	"os"
+	"strconv"
+	"strings"
+
 	"github.com/cecobask/imdb-trakt-sync/pkg/client"
 	"github.com/cecobask/imdb-trakt-sync/pkg/entities"
 	"github.com/cecobask/imdb-trakt-sync/pkg/logger"
 	_ "github.com/joho/godotenv/autoload"
-	"go.uber.org/zap"
-	"os"
-	"strconv"
-	"strings"
 )
 
 const (
@@ -25,7 +26,7 @@ const (
 )
 
 type Syncer struct {
-	logger      *zap.Logger
+	logger      *slog.Logger
 	imdbClient  client.ImdbClientInterface
 	traktClient client.TraktClientInterface
 	user        *user
@@ -41,7 +42,7 @@ type user struct {
 
 func NewSyncer() *Syncer {
 	syncer := &Syncer{
-		logger: logger.NewLogger(),
+		logger: logger.NewLogger(os.Stdout),
 		user: &user{
 			imdbLists:    make(map[string]entities.ImdbList),
 			imdbRatings:  make(map[string]entities.ImdbItem),
@@ -50,7 +51,8 @@ func NewSyncer() *Syncer {
 		},
 	}
 	if err := validateEnvVars(); err != nil {
-		syncer.logger.Fatal("failure validating environment variables", zap.Error(err))
+		syncer.logger.Error("failure validating environment variables", logger.Error(err))
+		os.Exit(1)
 	}
 	syncer.skipHistory, _ = strconv.ParseBool(os.Getenv(EnvVarKeySkipHistory))
 	imdbClient, err := client.NewImdbClient(
@@ -61,7 +63,8 @@ func NewSyncer() *Syncer {
 		syncer.logger,
 	)
 	if err != nil {
-		syncer.logger.Fatal("failure initialising imdb client", zap.Error(err))
+		syncer.logger.Error("failure initialising imdb client", logger.Error(err))
+		os.Exit(1)
 	}
 	syncer.imdbClient = imdbClient
 	traktClient, err := client.NewTraktClient(
@@ -75,7 +78,8 @@ func NewSyncer() *Syncer {
 		syncer.logger,
 	)
 	if err != nil {
-		syncer.logger.Fatal("failure initialising trakt client", zap.Error(err))
+		syncer.logger.Error("failure initialising trakt client", logger.Error(err))
+		os.Exit(1)
 	}
 	syncer.traktClient = traktClient
 	if imdbListIdsString := os.Getenv(EnvVarKeyListIds); imdbListIdsString != "" && imdbListIdsString != "all" {
@@ -90,16 +94,20 @@ func NewSyncer() *Syncer {
 
 func (s *Syncer) Run() {
 	if err := s.hydrate(); err != nil {
-		s.logger.Fatal("failure hydrating imdb client", zap.Error(err))
+		s.logger.Error("failure hydrating imdb client", logger.Error(err))
+		os.Exit(1)
 	}
 	if err := s.syncLists(); err != nil {
-		s.logger.Fatal("failure syncing lists", zap.Error(err))
+		s.logger.Error("failure syncing lists", logger.Error(err))
+		os.Exit(1)
 	}
 	if err := s.syncRatings(); err != nil {
-		s.logger.Fatal("failure syncing ratings", zap.Error(err))
+		s.logger.Error("failure syncing ratings", logger.Error(err))
+		os.Exit(1)
 	}
 	if err := s.syncHistory(); err != nil {
-		s.logger.Fatal("failure syncing history", zap.Error(err))
+		s.logger.Error("failure syncing history", logger.Error(err))
+		os.Exit(1)
 	}
 	s.logger.Info("successfully ran the syncer")
 }
