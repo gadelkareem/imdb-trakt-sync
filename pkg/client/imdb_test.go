@@ -1,11 +1,13 @@
 package client
 
 import (
+	_ "embed"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/cecobask/imdb-trakt-sync/pkg/entities"
@@ -671,6 +673,237 @@ func TestImdbClient_RatingsGet(t *testing.T) {
 			}
 			ratings, err := c.RatingsGet()
 			tt.assertions(assert.New(t), ratings, err)
+		})
+	}
+}
+
+//go:embed testdata/imdb_list.csv
+var dummyImdbList string
+
+func Test_readImdbListResponse(t *testing.T) {
+	type args struct {
+		response *http.Response
+		listId   string
+	}
+
+	tests := []struct {
+		name       string
+		args       args
+		assertions func(*assert.Assertions, *entities.ImdbList, error)
+	}{
+		{
+			name: "successfully read list response",
+			args: args{
+				response: &http.Response{
+					Header: http.Header{
+						imdbHeaderKeyContentDisposition: []string{`attachment; filename="Watched (2023).csv"`},
+					},
+					Body: io.NopCloser(strings.NewReader(dummyImdbList)),
+				},
+				listId: "ls123456789",
+			},
+			assertions: func(assertions *assert.Assertions, list *entities.ImdbList, err error) {
+				assertions.NotNil(list)
+				assertions.NoError(err)
+				assertions.Equal("ls123456789", list.ListId)
+				assertions.Equal("Watched (2023)", list.ListName)
+				assertions.Equal(3, len(list.ListItems))
+				assertions.Equal(false, list.IsWatchlist)
+				assertions.Equal("watched-2023", list.TraktListSlug)
+			},
+		},
+		{
+			name: "handle error when parsing media type",
+			args: args{
+				response: &http.Response{
+					Header: http.Header{
+						imdbHeaderKeyContentDisposition: []string{`invalid media type`},
+					},
+					Body: http.NoBody,
+				},
+				listId: "ls123456789",
+			},
+			assertions: func(assertions *assert.Assertions, list *entities.ImdbList, err error) {
+				assertions.Nil(list)
+				assertions.Error(err)
+			},
+		},
+		{
+			name: "handle error when content disposition header is missing",
+			args: args{
+				response: &http.Response{
+					Body: http.NoBody,
+				},
+				listId: "ls123456789",
+			},
+			assertions: func(assertions *assert.Assertions, list *entities.ImdbList, err error) {
+				assertions.Nil(list)
+				assertions.Error(err)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			list, err := readImdbListResponse(tt.args.response, tt.args.listId)
+			tt.assertions(assert.New(t), list, err)
+		})
+	}
+}
+
+//go:embed testdata/imdb_ratings.csv
+var dummyImdbRatings string
+
+func Test_readImdbRatingsResponse(t *testing.T) {
+	type args struct {
+		response *http.Response
+	}
+	tests := []struct {
+		name       string
+		args       args
+		assertions func(*assert.Assertions, []entities.ImdbItem, error)
+	}{
+		{
+			name: "successfully read ratings response",
+			args: args{
+				response: &http.Response{
+					Body: io.NopCloser(strings.NewReader(dummyImdbRatings)),
+				},
+			},
+			assertions: func(assertions *assert.Assertions, ratings []entities.ImdbItem, err error) {
+				assertions.NotNil(ratings)
+				assertions.NoError(err)
+				assertions.Equal(3, len(ratings))
+				assertions.Equal("tt5013056", ratings[0].Id)
+				assertions.Equal("tt15398776", ratings[1].Id)
+				assertions.Equal("tt0172495", ratings[2].Id)
+			},
+		},
+		{
+			name: "handle error when parsing rating value",
+			args: args{
+				response: &http.Response{
+					Body: io.NopCloser(strings.NewReader("field1,field2\n1,invalid-rating-value")),
+				},
+			},
+			assertions: func(assertions *assert.Assertions, ratings []entities.ImdbItem, err error) {
+				assertions.Nil(ratings)
+				assertions.Error(err)
+			},
+		},
+		{
+			name: "handle error when parsing rating date",
+			args: args{
+				response: &http.Response{
+					Body: io.NopCloser(strings.NewReader("field1,field2,field3\n1,1,invalid-date")),
+				},
+			},
+			assertions: func(assertions *assert.Assertions, ratings []entities.ImdbItem, err error) {
+				assertions.Nil(ratings)
+				assertions.Error(err)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ratings, err := readImdbRatingsResponse(tt.args.response)
+			tt.assertions(assert.New(t), ratings, err)
+		})
+	}
+}
+
+func TestImdbClient_hydrate(t *testing.T) {
+	tests := []struct {
+		name         string
+		requirements func(*require.Assertions) *httptest.Server
+		assertions   func(*assert.Assertions, ImdbConfig, error)
+	}{
+		{
+			name: "successfully hydrate client",
+			requirements: func(requirements *require.Assertions) *httptest.Server {
+				profileHandler := func(w http.ResponseWriter, r *http.Request) {
+					requirements.Equal(http.MethodGet, r.Method)
+					w.WriteHeader(http.StatusOK)
+					bytes, err := w.Write([]byte(`<div class="user-profile userId" data-userid="ur12345678"></div>`))
+					requirements.Greater(bytes, 0)
+					requirements.NoError(err)
+				}
+				watchlistHandler := func(w http.ResponseWriter, r *http.Request) {
+					requirements.Equal(http.MethodGet, r.Method)
+					w.WriteHeader(http.StatusOK)
+					bytes, err := w.Write([]byte(`<meta property="pageId" content="ls123456789">`))
+					requirements.Greater(bytes, 0)
+					requirements.NoError(err)
+				}
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					switch r.URL.Path {
+					case imdbPathProfile:
+						profileHandler(w, r)
+					case imdbPathWatchlist:
+						watchlistHandler(w, r)
+					default:
+						w.WriteHeader(http.StatusNotFound)
+					}
+				}))
+			},
+			assertions: func(assertions *assert.Assertions, config ImdbConfig, err error) {
+				assertions.NotNil(config)
+				assertions.NoError(err)
+				assertions.Equal("ur12345678", config.UserId)
+				assertions.Equal("ls123456789", config.WatchlistId)
+			},
+		},
+		{
+			name: "handle error when scraping user id",
+			requirements: func(requirements *require.Assertions) *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					requirements.Equal(http.MethodGet, r.Method)
+					requirements.Equal(imdbPathProfile, r.URL.Path)
+					w.WriteHeader(http.StatusInternalServerError)
+				}))
+			},
+			assertions: func(assertions *assert.Assertions, config ImdbConfig, err error) {
+				assertions.Zero(config.UserId)
+				assertions.Zero(config.WatchlistId)
+				assertions.Error(err)
+			},
+		},
+		{
+			name: "handle error when scraping watchlist id",
+			requirements: func(requirements *require.Assertions) *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					switch r.URL.Path {
+					case imdbPathProfile:
+						requirements.Equal(http.MethodGet, r.Method)
+						w.WriteHeader(http.StatusOK)
+						bytes, err := w.Write([]byte(`<div class="user-profile userId" data-userid="ur12345678"></div>`))
+						requirements.Greater(bytes, 0)
+						requirements.NoError(err)
+					case imdbPathWatchlist:
+						requirements.Equal(http.MethodGet, r.Method)
+						w.WriteHeader(http.StatusInternalServerError)
+					default:
+						w.WriteHeader(http.StatusNotFound)
+					}
+				}))
+			},
+			assertions: func(assertions *assert.Assertions, config ImdbConfig, err error) {
+				assertions.Equal("ur12345678", config.UserId)
+				assertions.Zero(config.WatchlistId)
+				assertions.Error(err)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testServer := tt.requirements(require.New(t))
+			defer testServer.Close()
+			c := &ImdbClient{
+				client: http.DefaultClient,
+				config: ImdbConfig{
+					BasePath: testServer.URL,
+				},
+			}
+			tt.assertions(assert.New(t), c.config, c.hydrate())
 		})
 	}
 }
