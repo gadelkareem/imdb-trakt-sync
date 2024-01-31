@@ -28,11 +28,14 @@ func defaultTestTraktClient(config TraktConfig) TraktClientInterface {
 }
 
 var (
-	dummyUsername = "cecobask"
-	dummyListId   = "watched"
-	dummyListName = "Watched"
-	dummyItemId   = "1388"
-	dummyConfig   = TraktConfig{
+	dummyUsername          = "cecobask"
+	dummyListId            = "watched"
+	dummyListName          = "Watched"
+	dummyItemId            = "1388"
+	dummyAuthenticityToken = "authenticity-token-value"
+	dummyUserCode          = "0e887e88"
+	dummyDeviceCode        = "4eca8122d271cf8a17f96b00326d2e83c8e699ee8cb836f9d812aa71cb535b6b"
+	dummyConfig            = TraktConfig{
 		username: dummyUsername,
 	}
 	dummyIdsMeta = []entities.TraktIdMeta{
@@ -1689,6 +1692,700 @@ func TestTraktClient_HistoryRemove(t *testing.T) {
 			tt.requirements()
 			c := defaultTestTraktClient(tt.fields.config)
 			err := c.HistoryRemove(tt.args.items)
+			tt.assertions(assert.New(t), err)
+		})
+	}
+}
+
+func TestTraktClient_BrowseSignIn(t *testing.T) {
+	tests := []struct {
+		name         string
+		requirements func()
+		assertions   func(*assert.Assertions, *string, error)
+	}{
+		{
+			name: "successfully browse sign in",
+			requirements: func() {
+				httpmock.RegisterResponder(
+					http.MethodGet,
+					traktPathBaseBrowser+traktPathAuthSignIn,
+					httpmock.NewStringResponder(http.StatusOK, `<div id="new_user"><input type="hidden" name="authenticity_token" value="authenticity-token-value"></div>`),
+				)
+			},
+			assertions: func(assertions *assert.Assertions, token *string, err error) {
+				assertions.NoError(err)
+				assertions.NotNil(token)
+				assertions.Equal(dummyAuthenticityToken, *token)
+			},
+		},
+		{
+			name: "failure getting authenticity token",
+			requirements: func() {
+				httpmock.RegisterResponder(
+					http.MethodGet,
+					traktPathBaseBrowser+traktPathAuthSignIn,
+					httpmock.NewJsonResponderOrPanic(http.StatusInternalServerError, nil),
+				)
+			},
+			assertions: func(assertions *assert.Assertions, token *string, err error) {
+				assertions.Error(err)
+				assertions.Nil(token)
+				var apiError *ApiError
+				assertions.True(errors.As(err, &apiError))
+				assertions.Equal(http.StatusInternalServerError, apiError.StatusCode)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			httpmock.Activate()
+			defer httpmock.DeactivateAndReset()
+			tt.requirements()
+			c := defaultTestTraktClient(dummyConfig)
+			token, err := c.BrowseSignIn()
+			tt.assertions(assert.New(t), token, err)
+		})
+	}
+}
+
+func TestTraktClient_SignIn(t *testing.T) {
+	type args struct {
+		authenticityToken string
+	}
+	tests := []struct {
+		name         string
+		args         args
+		requirements func()
+		assertions   func(*assert.Assertions, error)
+	}{
+		{
+			name: "successfully sign in",
+			args: args{
+				authenticityToken: dummyAuthenticityToken,
+			},
+			requirements: func() {
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseBrowser+traktPathAuthSignIn,
+					httpmock.NewJsonResponderOrPanic(http.StatusOK, nil),
+				)
+			},
+			assertions: func(assertions *assert.Assertions, err error) {
+				assertions.NoError(err)
+			},
+		},
+		{
+			name: "failure signing in",
+			args: args{
+				authenticityToken: dummyAuthenticityToken,
+			},
+			requirements: func() {
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseBrowser+traktPathAuthSignIn,
+					httpmock.NewJsonResponderOrPanic(http.StatusInternalServerError, nil),
+				)
+			},
+			assertions: func(assertions *assert.Assertions, err error) {
+				assertions.Error(err)
+				var apiError *ApiError
+				assertions.True(errors.As(err, &apiError))
+				assertions.Equal(http.StatusInternalServerError, apiError.StatusCode)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			httpmock.Activate()
+			defer httpmock.DeactivateAndReset()
+			tt.requirements()
+			c := defaultTestTraktClient(dummyConfig)
+			err := c.SignIn(tt.args.authenticityToken)
+			tt.assertions(assert.New(t), err)
+		})
+	}
+}
+
+func TestTraktClient_BrowseActivate(t *testing.T) {
+	tests := []struct {
+		name         string
+		requirements func()
+		assertions   func(*assert.Assertions, *string, error)
+	}{
+		{
+			name: "successfully browse activate",
+			requirements: func() {
+				httpmock.RegisterResponder(
+					http.MethodGet,
+					traktPathBaseBrowser+traktPathActivate,
+					httpmock.NewStringResponder(http.StatusOK, `<div id="auth-form-wrapper"><form class="form-signin"><input type="hidden" name="authenticity_token" value="authenticity-token-value"></form></div>`),
+				)
+			},
+			assertions: func(assertions *assert.Assertions, token *string, err error) {
+				assertions.NoError(err)
+				assertions.NotNil(token)
+				assertions.Equal(dummyAuthenticityToken, *token)
+			},
+		},
+		{
+			name: "failure browsing activate",
+			requirements: func() {
+				httpmock.RegisterResponder(
+					http.MethodGet,
+					traktPathBaseBrowser+traktPathActivate,
+					httpmock.NewJsonResponderOrPanic(http.StatusInternalServerError, nil),
+				)
+			},
+			assertions: func(assertions *assert.Assertions, token *string, err error) {
+				assertions.Error(err)
+				assertions.Nil(token)
+				var apiError *ApiError
+				assertions.True(errors.As(err, &apiError))
+				assertions.Equal(http.StatusInternalServerError, apiError.StatusCode)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			httpmock.Activate()
+			defer httpmock.DeactivateAndReset()
+			tt.requirements()
+			c := defaultTestTraktClient(dummyConfig)
+			token, err := c.BrowseActivate()
+			tt.assertions(assert.New(t), token, err)
+		})
+	}
+}
+
+func TestTraktClient_Activate(t *testing.T) {
+	type args struct {
+		userCode          string
+		authenticityToken string
+	}
+	tests := []struct {
+		name         string
+		args         args
+		requirements func()
+		assertions   func(*assert.Assertions, *string, error)
+	}{
+		{
+			name: "successfully activate",
+			args: args{
+				userCode:          dummyUserCode,
+				authenticityToken: dummyAuthenticityToken,
+			},
+			requirements: func() {
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseBrowser+traktPathActivate,
+					httpmock.NewStringResponder(http.StatusOK, `<div id="auth-form-wrapper"><div class="form-signin less-top"><div><form><input type="hidden" name="authenticity_token" value="authenticity-token-value"></form></div></div></div>`),
+				)
+			},
+			assertions: func(assertions *assert.Assertions, token *string, err error) {
+				assertions.NoError(err)
+				assertions.NotNil(token)
+				assertions.Equal(dummyAuthenticityToken, *token)
+			},
+		},
+		{
+			name: "failure activating",
+			args: args{
+				userCode:          dummyUserCode,
+				authenticityToken: dummyAuthenticityToken,
+			},
+			requirements: func() {
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseBrowser+traktPathActivate,
+					httpmock.NewJsonResponderOrPanic(http.StatusInternalServerError, nil),
+				)
+			},
+			assertions: func(assertions *assert.Assertions, token *string, err error) {
+				assertions.Error(err)
+				assertions.Nil(token)
+				var apiError *ApiError
+				assertions.True(errors.As(err, &apiError))
+				assertions.Equal(http.StatusInternalServerError, apiError.StatusCode)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			httpmock.Activate()
+			defer httpmock.DeactivateAndReset()
+			tt.requirements()
+			c := defaultTestTraktClient(dummyConfig)
+			token, err := c.Activate(tt.args.userCode, tt.args.authenticityToken)
+			tt.assertions(assert.New(t), token, err)
+		})
+	}
+}
+
+func TestTraktClient_ActivateAuthorize(t *testing.T) {
+	type args struct {
+		authenticityToken string
+	}
+	tests := []struct {
+		name         string
+		args         args
+		requirements func()
+		assertions   func(*assert.Assertions, error)
+	}{
+		{
+			name: "successfully activate authorize",
+			args: args{
+				authenticityToken: dummyAuthenticityToken,
+			},
+			requirements: func() {
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseBrowser+traktPathActivateAuthorize,
+					httpmock.NewStringResponder(http.StatusOK, `<a id="desktop-user-avatar" href="/users/cecobask"></a>`),
+				)
+			},
+			assertions: func(assertions *assert.Assertions, err error) {
+				assertions.NoError(err)
+			},
+		},
+		{
+			name: "failure activating authorize",
+			args: args{
+				authenticityToken: dummyAuthenticityToken,
+			},
+			requirements: func() {
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseBrowser+traktPathActivateAuthorize,
+					httpmock.NewJsonResponderOrPanic(http.StatusInternalServerError, nil),
+				)
+			},
+			assertions: func(assertions *assert.Assertions, err error) {
+				assertions.Error(err)
+				var apiError *ApiError
+				assertions.True(errors.As(err, &apiError))
+				assertions.Equal(http.StatusInternalServerError, apiError.StatusCode)
+			},
+		},
+		{
+			name: "failure scraping username",
+			args: args{
+				authenticityToken: dummyAuthenticityToken,
+			},
+			requirements: func() {
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseBrowser+traktPathActivateAuthorize,
+					httpmock.NewJsonResponderOrPanic(http.StatusOK, nil),
+				)
+			},
+			assertions: func(assertions *assert.Assertions, err error) {
+				assertions.Error(err)
+				assertions.Contains(err.Error(), "failure scraping")
+			},
+		},
+		{
+			name: "failure parsing scrape result to username",
+			args: args{
+				authenticityToken: dummyAuthenticityToken,
+			},
+			requirements: func() {
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseBrowser+traktPathActivateAuthorize,
+					httpmock.NewStringResponder(http.StatusOK, `<a id="desktop-user-avatar" href="invalid"></a>`),
+				)
+			},
+			assertions: func(assertions *assert.Assertions, err error) {
+				assertions.Error(err)
+				assertions.Contains(err.Error(), "failure scraping")
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			httpmock.Activate()
+			defer httpmock.DeactivateAndReset()
+			tt.requirements()
+			c := defaultTestTraktClient(dummyConfig)
+			err := c.ActivateAuthorize(tt.args.authenticityToken)
+			tt.assertions(assert.New(t), err)
+		})
+	}
+}
+
+func TestTraktClient_GetAccessToken(t *testing.T) {
+	type args struct {
+		deviceCode string
+	}
+	tests := []struct {
+		name         string
+		args         args
+		requirements func()
+		assertions   func(*assert.Assertions, *entities.TraktAuthTokensResponse, error)
+	}{
+		{
+			name: "successfully get access token",
+			args: args{
+				deviceCode: dummyDeviceCode,
+			},
+			requirements: func() {
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseAPI+traktPathAuthTokens,
+					httpmock.NewStringResponder(http.StatusOK, `{"access_token":"access-token-value"}`),
+				)
+			},
+			assertions: func(assertions *assert.Assertions, response *entities.TraktAuthTokensResponse, err error) {
+				assertions.NoError(err)
+				assertions.NotNil(response)
+				assertions.Equal("access-token-value", response.AccessToken)
+			},
+		},
+		{
+			name: "failure getting access token",
+			args: args{
+				deviceCode: dummyDeviceCode,
+			},
+			requirements: func() {
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseAPI+traktPathAuthTokens,
+					httpmock.NewJsonResponderOrPanic(http.StatusInternalServerError, nil),
+				)
+			},
+			assertions: func(assertions *assert.Assertions, response *entities.TraktAuthTokensResponse, err error) {
+				assertions.Error(err)
+				assertions.Nil(response)
+				var apiError *ApiError
+				assertions.True(errors.As(err, &apiError))
+				assertions.Equal(http.StatusInternalServerError, apiError.StatusCode)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			httpmock.Activate()
+			defer httpmock.DeactivateAndReset()
+			tt.requirements()
+			c := defaultTestTraktClient(dummyConfig)
+			response, err := c.GetAccessToken(tt.args.deviceCode)
+			tt.assertions(assert.New(t), response, err)
+		})
+	}
+}
+
+func TestTraktClient_GetAuthCodes(t *testing.T) {
+	tests := []struct {
+		name         string
+		requirements func()
+		assertions   func(*assert.Assertions, *entities.TraktAuthCodesResponse, error)
+	}{
+		{
+			name: "successfully get auth codes",
+			requirements: func() {
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseAPI+traktPathAuthCodes,
+					httpmock.NewStringResponder(http.StatusOK, `{"device_code":"`+dummyDeviceCode+`","user_code":"`+dummyUserCode+`"}`),
+				)
+			},
+			assertions: func(assertions *assert.Assertions, response *entities.TraktAuthCodesResponse, err error) {
+				assertions.NoError(err)
+				assertions.NotNil(response)
+				assertions.Equal(dummyDeviceCode, response.DeviceCode)
+				assertions.Equal(dummyUserCode, response.UserCode)
+			},
+		},
+		{
+			name: "failure getting auth codes",
+			requirements: func() {
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseAPI+traktPathAuthCodes,
+					httpmock.NewJsonResponderOrPanic(http.StatusInternalServerError, nil),
+				)
+			},
+			assertions: func(assertions *assert.Assertions, response *entities.TraktAuthCodesResponse, err error) {
+				assertions.Error(err)
+				assertions.Nil(response)
+				var apiError *ApiError
+				assertions.True(errors.As(err, &apiError))
+				assertions.Equal(http.StatusInternalServerError, apiError.StatusCode)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			httpmock.Activate()
+			defer httpmock.DeactivateAndReset()
+			tt.requirements()
+			c := defaultTestTraktClient(dummyConfig)
+			response, err := c.GetAuthCodes()
+			tt.assertions(assert.New(t), response, err)
+		})
+	}
+}
+
+func TestTraktClient_Hydrate(t *testing.T) {
+	tests := []struct {
+		name         string
+		requirements func()
+		assertions   func(*assert.Assertions, error)
+	}{
+		{
+			name: "successfully hydrate",
+			requirements: func() {
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseAPI+traktPathAuthCodes,
+					httpmock.NewStringResponder(http.StatusOK, `{"device_code":"`+dummyDeviceCode+`","user_code":"`+dummyUserCode+`"}`),
+				)
+				httpmock.RegisterResponder(
+					http.MethodGet,
+					traktPathBaseBrowser+traktPathAuthSignIn,
+					httpmock.NewStringResponder(http.StatusOK, `<div id="new_user"><input type="hidden" name="authenticity_token" value="authenticity-token-value"></div>`),
+				)
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseBrowser+traktPathAuthSignIn,
+					httpmock.NewJsonResponderOrPanic(http.StatusOK, nil),
+				)
+				httpmock.RegisterResponder(
+					http.MethodGet,
+					traktPathBaseBrowser+traktPathActivate,
+					httpmock.NewStringResponder(http.StatusOK, `<div id="auth-form-wrapper"><form class="form-signin"><input type="hidden" name="authenticity_token" value="authenticity-token-value"></form></div>`),
+				)
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseBrowser+traktPathActivate,
+					httpmock.NewStringResponder(http.StatusOK, `<div id="auth-form-wrapper"><div class="form-signin less-top"><div><form><input type="hidden" name="authenticity_token" value="authenticity-token-value"></form></div></div></div>`),
+				)
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseBrowser+traktPathActivateAuthorize,
+					httpmock.NewStringResponder(http.StatusOK, `<a id="desktop-user-avatar" href="/users/cecobask"></a>`),
+				)
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseAPI+traktPathAuthTokens,
+					httpmock.NewStringResponder(http.StatusOK, `{"access_token":"access-token-value"}`),
+				)
+			},
+			assertions: func(assertions *assert.Assertions, err error) {
+				assertions.NoError(err)
+			},
+		},
+		{
+			name: "failure getting auth codes",
+			requirements: func() {
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseAPI+traktPathAuthCodes,
+					httpmock.NewJsonResponderOrPanic(http.StatusInternalServerError, nil),
+				)
+			},
+			assertions: func(assertions *assert.Assertions, err error) {
+				assertions.Error(err)
+				assertions.Contains(err.Error(), "failure generating auth codes")
+			},
+		},
+		{
+			name: "failure browsing sign in",
+			requirements: func() {
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseAPI+traktPathAuthCodes,
+					httpmock.NewStringResponder(http.StatusOK, `{"device_code":"`+dummyDeviceCode+`","user_code":"`+dummyUserCode+`"}`),
+				)
+				httpmock.RegisterResponder(
+					http.MethodGet,
+					traktPathBaseBrowser+traktPathAuthSignIn,
+					httpmock.NewJsonResponderOrPanic(http.StatusInternalServerError, nil),
+				)
+			},
+			assertions: func(assertions *assert.Assertions, err error) {
+				assertions.Error(err)
+				assertions.Contains(err.Error(), "failure simulating browse to the trakt sign in page")
+			},
+		},
+		{
+			name: "failure signing in",
+			requirements: func() {
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseAPI+traktPathAuthCodes,
+					httpmock.NewStringResponder(http.StatusOK, `{"device_code":"`+dummyDeviceCode+`","user_code":"`+dummyUserCode+`"}`),
+				)
+				httpmock.RegisterResponder(
+					http.MethodGet,
+					traktPathBaseBrowser+traktPathAuthSignIn,
+					httpmock.NewStringResponder(http.StatusOK, `<div id="new_user"><input type="hidden" name="authenticity_token" value="authenticity-token-value"></div>`),
+				)
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseBrowser+traktPathAuthSignIn,
+					httpmock.NewJsonResponderOrPanic(http.StatusInternalServerError, nil),
+				)
+			},
+			assertions: func(assertions *assert.Assertions, err error) {
+				assertions.Error(err)
+				assertions.Contains(err.Error(), "failure simulating trakt sign in form submission")
+			},
+		},
+		{
+			name: "failure browsing activate",
+			requirements: func() {
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseAPI+traktPathAuthCodes,
+					httpmock.NewStringResponder(http.StatusOK, `{"device_code":"`+dummyDeviceCode+`","user_code":"`+dummyUserCode+`"}`),
+				)
+				httpmock.RegisterResponder(
+					http.MethodGet,
+					traktPathBaseBrowser+traktPathAuthSignIn,
+					httpmock.NewStringResponder(http.StatusOK, `<div id="new_user"><input type="hidden" name="authenticity_token" value="authenticity-token-value"></div>`),
+				)
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseBrowser+traktPathAuthSignIn,
+					httpmock.NewJsonResponderOrPanic(http.StatusOK, nil),
+				)
+				httpmock.RegisterResponder(
+					http.MethodGet,
+					traktPathBaseBrowser+traktPathActivate,
+					httpmock.NewJsonResponderOrPanic(http.StatusInternalServerError, nil),
+				)
+			},
+			assertions: func(assertions *assert.Assertions, err error) {
+				assertions.Error(err)
+				assertions.Contains(err.Error(), "failure simulating browse to the trakt device activation page")
+			},
+		},
+		{
+			name: "failure activating",
+			requirements: func() {
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseAPI+traktPathAuthCodes,
+					httpmock.NewStringResponder(http.StatusOK, `{"device_code":"`+dummyDeviceCode+`","user_code":"`+dummyUserCode+`"}`),
+				)
+				httpmock.RegisterResponder(
+					http.MethodGet,
+					traktPathBaseBrowser+traktPathAuthSignIn,
+					httpmock.NewStringResponder(http.StatusOK, `<div id="new_user"><input type="hidden" name="authenticity_token" value="authenticity-token-value"></div>`),
+				)
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseBrowser+traktPathAuthSignIn,
+					httpmock.NewJsonResponderOrPanic(http.StatusOK, nil),
+				)
+				httpmock.RegisterResponder(
+					http.MethodGet,
+					traktPathBaseBrowser+traktPathActivate,
+					httpmock.NewStringResponder(http.StatusOK, `<div id="auth-form-wrapper"><form class="form-signin"><input type="hidden" name="authenticity_token" value="authenticity-token-value"></form></div>`),
+				)
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseBrowser+traktPathActivate,
+					httpmock.NewJsonResponderOrPanic(http.StatusInternalServerError, nil),
+				)
+			},
+			assertions: func(assertions *assert.Assertions, err error) {
+				assertions.Error(err)
+				assertions.Contains(err.Error(), "failure simulating trakt device activation form submission")
+			},
+		},
+		{
+			name: "failure activating authorize",
+			requirements: func() {
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseAPI+traktPathAuthCodes,
+					httpmock.NewStringResponder(http.StatusOK, `{"device_code":"`+dummyDeviceCode+`","user_code":"`+dummyUserCode+`"}`),
+				)
+				httpmock.RegisterResponder(
+					http.MethodGet,
+					traktPathBaseBrowser+traktPathAuthSignIn,
+					httpmock.NewStringResponder(http.StatusOK, `<div id="new_user"><input type="hidden" name="authenticity_token" value="authenticity-token-value"></div>`),
+				)
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseBrowser+traktPathAuthSignIn,
+					httpmock.NewJsonResponderOrPanic(http.StatusOK, nil),
+				)
+				httpmock.RegisterResponder(
+					http.MethodGet,
+					traktPathBaseBrowser+traktPathActivate,
+					httpmock.NewStringResponder(http.StatusOK, `<div id="auth-form-wrapper"><form class="form-signin"><input type="hidden" name="authenticity_token" value="authenticity-token-value"></form></div>`),
+				)
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseBrowser+traktPathActivate,
+					httpmock.NewStringResponder(http.StatusOK, `<div id="auth-form-wrapper"><div class="form-signin less-top"><div><form><input type="hidden" name="authenticity_token" value="authenticity-token-value"></form></div></div></div>`),
+				)
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseBrowser+traktPathActivateAuthorize,
+					httpmock.NewJsonResponderOrPanic(http.StatusInternalServerError, nil),
+				)
+			},
+			assertions: func(assertions *assert.Assertions, err error) {
+				assertions.Error(err)
+				assertions.Contains(err.Error(), "failure simulating trakt api app allowlisting")
+			},
+		},
+		{
+			name: "failure getting access token",
+			requirements: func() {
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseAPI+traktPathAuthCodes,
+					httpmock.NewStringResponder(http.StatusOK, `{"device_code":"`+dummyDeviceCode+`","user_code":"`+dummyUserCode+`"}`),
+				)
+				httpmock.RegisterResponder(
+					http.MethodGet,
+					traktPathBaseBrowser+traktPathAuthSignIn,
+					httpmock.NewStringResponder(http.StatusOK, `<div id="new_user"><input type="hidden" name="authenticity_token" value="authenticity-token-value"></div>`),
+				)
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseBrowser+traktPathAuthSignIn,
+					httpmock.NewJsonResponderOrPanic(http.StatusOK, nil),
+				)
+				httpmock.RegisterResponder(
+					http.MethodGet,
+					traktPathBaseBrowser+traktPathActivate,
+					httpmock.NewStringResponder(http.StatusOK, `<div id="auth-form-wrapper"><form class="form-signin"><input type="hidden" name="authenticity_token" value="authenticity-token-value"></form></div>`),
+				)
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseBrowser+traktPathActivate,
+					httpmock.NewStringResponder(http.StatusOK, `<div id="auth-form-wrapper"><div class="form-signin less-top"><div><form><input type="hidden" name="authenticity_token" value="authenticity-token-value"></form></div></div></div>`),
+				)
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseBrowser+traktPathActivateAuthorize,
+					httpmock.NewStringResponder(http.StatusOK, `<a id="desktop-user-avatar" href="/users/cecobask"></a>`),
+				)
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseAPI+traktPathAuthTokens,
+					httpmock.NewJsonResponderOrPanic(http.StatusInternalServerError, nil),
+				)
+			},
+			assertions: func(assertions *assert.Assertions, err error) {
+				assertions.Error(err)
+				assertions.Contains(err.Error(), "failure exchanging trakt device code for access token")
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			httpmock.Activate()
+			defer httpmock.DeactivateAndReset()
+			tt.requirements()
+			c := defaultTestTraktClient(dummyConfig)
+			err := c.Hydrate()
 			tt.assertions(assert.New(t), err)
 		})
 	}
