@@ -32,3 +32,4 @@ of the fields can be left empty
 match the configuration paths, prefixed with `ITS_`. For example, to configure your Trakt email, the environment variable name should be `ITS_TRAKT_EMAIL`
 4. Make sure you have Go installed on your machine. If you do not have it, [this is how you can install it](https://go.dev/doc/install)
 5. Open a terminal window in the repository folder and run the application using the command `make sync`
+ 
