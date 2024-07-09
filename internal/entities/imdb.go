@@ -5,10 +5,10 @@ import (
 )
 
 const (
-	imdbItemTypeMovie        = "movie"
-	imdbItemTypeTvEpisode    = "tvEpisode"
-	imdbItemTypeTvMiniSeries = "tvMiniSeries"
-	imdbItemTypeTvSeries     = "tvSeries"
+	imdbItemTypeMovie        = "Movie"
+	imdbItemTypeTvEpisode    = "TV Episode"
+	imdbItemTypeTvMiniSeries = "TV Mini Series"
+	imdbItemTypeTvSeries     = "TV Series"
 )
 
 type IMDbItem struct {
@@ -52,9 +52,8 @@ func (i *IMDbItem) toTraktItem() TraktItem {
 }
 
 type IMDbList struct {
-	ListID        string
-	ListName      string
-	ListItems     []IMDbItem
-	IsWatchlist   bool
-	TraktListSlug string // lazily populated
+	ListID      string
+	ListName    string
+	ListItems   []IMDbItem
+	IsWatchlist bool
 }

@@ -1,16 +1,18 @@
 package configure
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
-	"github.com/cecobask/imdb-trakt-sync/cmd"
-	"github.com/cecobask/imdb-trakt-sync/pkg/config"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
+
+	"github.com/cecobask/imdb-trakt-sync/cmd"
+	"github.com/cecobask/imdb-trakt-sync/internal/config"
 )
 
-func NewCommand() *cobra.Command {
+func NewCommand(ctx context.Context) *cobra.Command {
 	var conf *config.Config
 	var confPath string
 	command := &cobra.Command{

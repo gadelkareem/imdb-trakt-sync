@@ -1,15 +1,17 @@
 package root
 
 import (
+	"context"
 	"os"
+
+	"github.com/spf13/cobra"
 
 	"github.com/cecobask/imdb-trakt-sync/cmd"
 	"github.com/cecobask/imdb-trakt-sync/cmd/configure"
 	"github.com/cecobask/imdb-trakt-sync/cmd/sync"
-	"github.com/spf13/cobra"
 )
 
-func NewCommand() *cobra.Command {
+func NewCommand(ctx context.Context) *cobra.Command {
 	command := &cobra.Command{
 		Use:     cmd.CommandNameRoot,
 		Aliases: []string{cmd.CommandAliasRoot},
@@ -30,8 +32,8 @@ func NewCommand() *cobra.Command {
 		Hidden: true,
 	})
 	command.AddCommand(
-		configure.NewCommand(),
-		sync.NewCommand(),
+		configure.NewCommand(ctx),
+		sync.NewCommand(ctx),
 	)
 	command.SetOut(os.Stdout)
 	command.SetErr(os.Stderr)

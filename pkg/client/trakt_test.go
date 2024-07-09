@@ -9,15 +9,16 @@ import (
 	"slices"
 	"testing"
 
-	appconfig "github.com/cecobask/imdb-trakt-sync/pkg/config"
-	"github.com/cecobask/imdb-trakt-sync/pkg/entities"
-	"github.com/cecobask/imdb-trakt-sync/pkg/logger"
 	"github.com/jarcoal/httpmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	appconfig "github.com/cecobask/imdb-trakt-sync/internal/config"
+	"github.com/cecobask/imdb-trakt-sync/internal/entities"
+	"github.com/cecobask/imdb-trakt-sync/pkg/logger"
 )
 
-func buildTestTraktClient(config traktConfig) TraktClientInterface {
+func buildTestTraktClient(config traktConfig) *TraktClient {
 	return &TraktClient{
 		client: &http.Client{
 			Transport: httpmock.DefaultTransport,
@@ -177,6 +178,25 @@ func TestTraktClient_doRequest(t *testing.T) {
 			},
 		},
 		{
+			name: "handle retryable status",
+			args: args{
+				requestFields: dummyRequestFields,
+			},
+			requirements: func(requirements *require.Assertions) *httptest.Server {
+				handler := func(w http.ResponseWriter, r *http.Request) {
+					requirements.Equal(dummyRequestFields.Method, r.Method)
+					requirements.Equal(dummyRequestFields.Endpoint, r.URL.Path)
+					w.WriteHeader(http.StatusBadGateway)
+				}
+				return httptest.NewServer(http.HandlerFunc(handler))
+			},
+			assertions: func(assertions *assert.Assertions, res *http.Response, err error) {
+				assertions.Nil(res)
+				assertions.Error(err)
+				assertions.Contains(err.Error(), "reached max retry attempts")
+			},
+		},
+		{
 			name: "handle unexpected status code",
 			args: args{
 				requestFields: dummyRequestFields,
@@ -274,7 +294,7 @@ func TestTraktClient_WatchlistGet(t *testing.T) {
 			},
 		},
 		{
-			name: "failure unmarshalling trakt list",
+			name: "failure decoding trakt response",
 			requirements: func() {
 				httpmock.RegisterResponder(
 					http.MethodGet,
@@ -285,7 +305,7 @@ func TestTraktClient_WatchlistGet(t *testing.T) {
 			assertions: func(assertions *assert.Assertions, list *entities.TraktList, err error) {
 				assertions.Nil(list)
 				assertions.Error(err)
-				assertions.Contains(err.Error(), "failure unmarshalling trakt list")
+				assertions.Contains(err.Error(), "failure decoding reader into target")
 			},
 		},
 	}
@@ -357,7 +377,7 @@ func TestTraktClient_WatchlistItemsAdd(t *testing.T) {
 			},
 		},
 		{
-			name: "failure unmarshalling trakt response",
+			name: "failure decoding trakt response",
 			fields: fields{
 				config: dummyConfig,
 			},
@@ -373,7 +393,7 @@ func TestTraktClient_WatchlistItemsAdd(t *testing.T) {
 			},
 			assertions: func(assertions *assert.Assertions, err error) {
 				assertions.Error(err)
-				assertions.Contains(err.Error(), "failure unmarshalling trakt response")
+				assertions.Contains(err.Error(), "failure decoding reader")
 			},
 		},
 	}
@@ -445,7 +465,7 @@ func TestTraktClient_WatchlistItemsRemove(t *testing.T) {
 			},
 		},
 		{
-			name: "failure unmarshalling trakt response",
+			name: "failure decoding trakt response",
 			fields: fields{
 				config: dummyConfig,
 			},
@@ -461,7 +481,7 @@ func TestTraktClient_WatchlistItemsRemove(t *testing.T) {
 			},
 			assertions: func(assertions *assert.Assertions, err error) {
 				assertions.Error(err)
-				assertions.Contains(err.Error(), "failure unmarshalling trakt response")
+				assertions.Contains(err.Error(), "failure decoding reader")
 			},
 		},
 	}
@@ -555,9 +575,31 @@ func TestTraktClient_ListGet(t *testing.T) {
 			assertions: func(assertions *assert.Assertions, list *entities.TraktList, err error) {
 				assertions.Nil(list)
 				assertions.Error(err)
-				var apiError *ApiError
-				assertions.True(errors.As(err, &apiError))
-				assertions.Equal(http.StatusNotFound, apiError.StatusCode)
+				var notFoundErr *TraktListNotFoundError
+				assertions.True(errors.As(err, &notFoundErr))
+				assertions.Equal(dummyListID, notFoundErr.Slug)
+				assertions.Equal(notFoundErr.Error(), fmt.Sprintf("list with id %s could not be found", dummyListID))
+			},
+		},
+		{
+			name: "failure decoding trakt response",
+			fields: fields{
+				config: dummyConfig,
+			},
+			args: args{
+				listID: dummyListID,
+			},
+			requirements: func() {
+				httpmock.RegisterResponder(
+					http.MethodGet,
+					fmt.Sprintf(traktPathBaseAPI+traktPathUserListItems, dummyUsername, dummyListID),
+					httpmock.NewStringResponder(http.StatusOK, "invalid"),
+				)
+			},
+			assertions: func(assertions *assert.Assertions, list *entities.TraktList, err error) {
+				assertions.Nil(list)
+				assertions.Error(err)
+				assertions.Contains(err.Error(), "failure decoding reader into target")
 			},
 		},
 	}
@@ -638,7 +680,7 @@ func TestTraktClient_ListItemsAdd(t *testing.T) {
 			},
 		},
 		{
-			name: "failure unmarshalling trakt response",
+			name: "failure decoding trakt response",
 			fields: fields{
 				config: dummyConfig,
 			},
@@ -655,7 +697,7 @@ func TestTraktClient_ListItemsAdd(t *testing.T) {
 			},
 			assertions: func(assertions *assert.Assertions, err error) {
 				assertions.Error(err)
-				assertions.Contains(err.Error(), "failure unmarshalling trakt response")
+				assertions.Contains(err.Error(), "failure decoding reader")
 			},
 		},
 	}
@@ -736,7 +778,7 @@ func TestTraktClient_ListItemsRemove(t *testing.T) {
 			},
 		},
 		{
-			name: "failure unmarshalling trakt response",
+			name: "failure decoding trakt response",
 			fields: fields{
 				config: dummyConfig,
 			},
@@ -753,7 +795,7 @@ func TestTraktClient_ListItemsRemove(t *testing.T) {
 			},
 			assertions: func(assertions *assert.Assertions, err error) {
 				assertions.Error(err)
-				assertions.Contains(err.Error(), "failure unmarshalling trakt response")
+				assertions.Contains(err.Error(), "failure decoding reader")
 			},
 		},
 	}
@@ -781,7 +823,7 @@ func TestTraktClient_ListsGet(t *testing.T) {
 		fields       fields
 		args         args
 		requirements func()
-		assertions   func(*assert.Assertions, []entities.TraktList, error)
+		assertions   func(*assert.Assertions, []entities.TraktList, []error)
 	}{
 		{
 			name: "successfully get lists",
@@ -803,9 +845,9 @@ func TestTraktClient_ListsGet(t *testing.T) {
 					httpmock.NewJsonResponderOrPanic(http.StatusOK, httpmock.File("testdata/trakt_list.json")),
 				)
 			},
-			assertions: func(assertions *assert.Assertions, lists []entities.TraktList, err error) {
+			assertions: func(assertions *assert.Assertions, lists []entities.TraktList, errs []error) {
 				assertions.NotNil(lists)
-				assertions.NoError(err)
+				assertions.Empty(errs)
 				validSlugs := []string{
 					dummyListID,
 					"not-watched",
@@ -836,16 +878,16 @@ func TestTraktClient_ListsGet(t *testing.T) {
 					httpmock.NewJsonResponderOrPanic(http.StatusInternalServerError, nil),
 				)
 			},
-			assertions: func(assertions *assert.Assertions, lists []entities.TraktList, err error) {
+			assertions: func(assertions *assert.Assertions, lists []entities.TraktList, errs []error) {
 				assertions.Nil(lists)
-				assertions.Error(err)
+				assertions.Len(errs, 1)
 				var apiError *ApiError
-				assertions.True(errors.As(err, &apiError))
+				assertions.True(errors.As(errs[0], &apiError))
 				assertions.Equal(http.StatusInternalServerError, apiError.StatusCode)
 			},
 		},
 		{
-			name: "create empty trakt list when not found",
+			name: "delegate empty trakt list error when not found",
 			fields: fields{
 				config: dummyConfig,
 			},
@@ -863,56 +905,13 @@ func TestTraktClient_ListsGet(t *testing.T) {
 					fmt.Sprintf(traktPathBaseAPI+traktPathUserListItems, dummyUsername, "not-watched"),
 					httpmock.NewJsonResponderOrPanic(http.StatusNotFound, nil),
 				)
-				httpmock.RegisterResponder(
-					http.MethodPost,
-					fmt.Sprintf(traktPathBaseAPI+traktPathUserList, dummyUsername, ""),
-					httpmock.NewJsonResponderOrPanic(http.StatusOK, nil),
-				)
 			},
-			assertions: func(assertions *assert.Assertions, lists []entities.TraktList, err error) {
+			assertions: func(assertions *assert.Assertions, lists []entities.TraktList, errs []error) {
 				assertions.NotNil(lists)
-				assertions.NoError(err)
-				validSlugs := []string{
-					dummyListID,
-					"not-watched",
-				}
-				for _, list := range lists {
-					isMatch := slices.Contains(validSlugs, list.IDMeta.Slug)
-					assertions.Equal(true, isMatch)
-				}
-			},
-		},
-		{
-			name: "failure creating empty trakt list when not found",
-			fields: fields{
-				config: dummyConfig,
-			},
-			args: args{
-				idsMeta: dummyIDsMeta,
-			},
-			requirements: func() {
-				httpmock.RegisterResponder(
-					http.MethodGet,
-					fmt.Sprintf(traktPathBaseAPI+traktPathUserListItems, dummyUsername, dummyListID),
-					httpmock.NewJsonResponderOrPanic(http.StatusOK, httpmock.File("testdata/trakt_list.json")),
-				)
-				httpmock.RegisterResponder(
-					http.MethodGet,
-					fmt.Sprintf(traktPathBaseAPI+traktPathUserListItems, dummyUsername, "not-watched"),
-					httpmock.NewJsonResponderOrPanic(http.StatusNotFound, nil),
-				)
-				httpmock.RegisterResponder(
-					http.MethodPost,
-					fmt.Sprintf(traktPathBaseAPI+traktPathUserList, dummyUsername, ""),
-					httpmock.NewJsonResponderOrPanic(http.StatusInternalServerError, nil),
-				)
-			},
-			assertions: func(assertions *assert.Assertions, lists []entities.TraktList, err error) {
-				assertions.Nil(lists)
-				assertions.Error(err)
-				var apiError *ApiError
-				assertions.True(errors.As(err, &apiError))
-				assertions.Equal(http.StatusInternalServerError, apiError.StatusCode)
+				assertions.Len(errs, 1)
+				var notFoundErr *TraktListNotFoundError
+				assertions.True(errors.As(errs[0], &notFoundErr))
+				assertions.Equal("not-watched", notFoundErr.Slug)
 			},
 		},
 	}
@@ -1115,24 +1114,6 @@ func TestTraktClient_RatingsGet(t *testing.T) {
 				assertions.Equal(http.StatusInternalServerError, apiError.StatusCode)
 			},
 		},
-		{
-			name: "failure unmarshalling trakt list",
-			fields: fields{
-				config: dummyConfig,
-			},
-			requirements: func() {
-				httpmock.RegisterResponder(
-					http.MethodGet,
-					traktPathBaseAPI+traktPathRatings,
-					httpmock.NewStringResponder(http.StatusOK, "invalid"),
-				)
-			},
-			assertions: func(assertions *assert.Assertions, ratings entities.TraktItems, err error) {
-				assertions.Nil(ratings)
-				assertions.Error(err)
-				assertions.Contains(err.Error(), "failure unmarshalling trakt list")
-			},
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1202,7 +1183,7 @@ func TestTraktClient_RatingsAdd(t *testing.T) {
 			},
 		},
 		{
-			name: "failure unmarshalling trakt response",
+			name: "failure decoding trakt response",
 			fields: fields{
 				config: dummyConfig,
 			},
@@ -1218,7 +1199,7 @@ func TestTraktClient_RatingsAdd(t *testing.T) {
 			},
 			assertions: func(assertions *assert.Assertions, err error) {
 				assertions.Error(err)
-				assertions.Contains(err.Error(), "failure unmarshalling trakt response")
+				assertions.Contains(err.Error(), "failure decoding reader")
 			},
 		},
 	}
@@ -1290,7 +1271,7 @@ func TestTraktClient_RatingsRemove(t *testing.T) {
 			},
 		},
 		{
-			name: "failure unmarshalling trakt response",
+			name: "failure decoding trakt response",
 			fields: fields{
 				config: dummyConfig,
 			},
@@ -1306,7 +1287,7 @@ func TestTraktClient_RatingsRemove(t *testing.T) {
 			},
 			assertions: func(assertions *assert.Assertions, err error) {
 				assertions.Error(err)
-				assertions.Contains(err.Error(), "failure unmarshalling trakt response")
+				assertions.Contains(err.Error(), "failure decoding reader")
 			},
 		},
 	}
@@ -1452,7 +1433,7 @@ func TestTraktClient_HistoryAdd(t *testing.T) {
 			},
 		},
 		{
-			name: "failure unmarshalling trakt response",
+			name: "failure decoding trakt response",
 			fields: fields{
 				config: dummyConfig,
 			},
@@ -1468,7 +1449,7 @@ func TestTraktClient_HistoryAdd(t *testing.T) {
 			},
 			assertions: func(assertions *assert.Assertions, err error) {
 				assertions.Error(err)
-				assertions.Contains(err.Error(), "failure unmarshalling trakt response")
+				assertions.Contains(err.Error(), "failure decoding reader")
 			},
 		},
 	}
@@ -1540,7 +1521,7 @@ func TestTraktClient_HistoryRemove(t *testing.T) {
 			},
 		},
 		{
-			name: "failure unmarshalling trakt response",
+			name: "failure decoding trakt response",
 			fields: fields{
 				config: dummyConfig,
 			},
@@ -1556,7 +1537,7 @@ func TestTraktClient_HistoryRemove(t *testing.T) {
 			},
 			assertions: func(assertions *assert.Assertions, err error) {
 				assertions.Error(err)
-				assertions.Contains(err.Error(), "failure unmarshalling trakt response")
+				assertions.Contains(err.Error(), "failure decoding reader")
 			},
 		},
 	}
@@ -2260,7 +2241,7 @@ func TestTraktClient_Hydrate(t *testing.T) {
 			defer httpmock.DeactivateAndReset()
 			tt.requirements()
 			c := buildTestTraktClient(dummyConfig)
-			err := c.Hydrate()
+			err := c.hydrate()
 			tt.assertions(assert.New(t), err)
 		})
 	}
