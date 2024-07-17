@@ -33,9 +33,11 @@ type Trakt struct {
 }
 
 type Sync struct {
-	Mode    *string        `koanf:"MODE"`
-	History *bool          `koanf:"HISTORY"`
-	Timeout *time.Duration `koanf:"TIMEOUT"`
+	Mode      *string        `koanf:"MODE"`
+	History   *bool          `koanf:"HISTORY"`
+	Ratings   *bool          `koanf:"RATINGS"`
+	Watchlist *bool          `koanf:"WATCHLIST"`
+	Timeout   *time.Duration `koanf:"TIMEOUT"`
 }
 
 type Config struct {
@@ -51,6 +53,7 @@ const (
 
 	IMDbAuthMethodCredentials = "credentials"
 	IMDbAuthMethodCookies     = "cookies"
+	IMDbAuthMethodNone        = "none"
 	SyncModeAddOnly           = "add-only"
 	SyncModeDryRun            = "dry-run"
 	SyncModeFull              = "full"
@@ -113,6 +116,7 @@ func (c *Config) Validate() error {
 		if c.IMDb.CookieUbidMain == nil {
 			return fmt.Errorf("config field 'IMDB_COOKIEUBIDMAIN' is required")
 		}
+	case IMDbAuthMethodNone:
 	default:
 		return fmt.Errorf("config field 'IMDB_AUTH' must be one of: %s", strings.Join(validIMDbAuthMethods(), ", "))
 	}
@@ -184,10 +188,16 @@ func (c *Config) applyDefaults() {
 		c.IMDb.Headless = pointer(true)
 	}
 	if c.Sync.Mode == nil {
-		c.Sync.Mode = pointer(SyncModeFull)
+		c.Sync.Mode = pointer(SyncModeDryRun)
 	}
 	if c.Sync.History == nil {
-		c.Sync.History = pointer(true)
+		c.Sync.History = pointer(false)
+	}
+	if c.Sync.Ratings == nil {
+		c.Sync.Ratings = pointer(false)
+	}
+	if c.Sync.Watchlist == nil {
+		c.Sync.Watchlist = pointer(false)
 	}
 	if c.Sync.Timeout == nil {
 		c.Sync.Timeout = pointer(SyncTimeoutDefault)
@@ -210,6 +220,7 @@ func validIMDbAuthMethods() []string {
 	return []string{
 		IMDbAuthMethodCredentials,
 		IMDbAuthMethodCookies,
+		IMDbAuthMethodNone,
 	}
 }
 
