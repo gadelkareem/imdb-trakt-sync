@@ -28,10 +28,6 @@ func buildTestTraktClient(config traktConfig) *TraktClient {
 	}
 }
 
-func stringPointer(s string) *string {
-	return &s
-}
-
 var (
 	dummyUsername          = "cecobask"
 	dummyListID            = "watched"
@@ -41,10 +37,10 @@ var (
 	dummyUserCode          = "0e887e88"
 	dummyDeviceCode        = "4eca8122d271cf8a17f96b00326d2e83c8e699ee8cb836f9d812aa71cb535b6b"
 	dummyAppConfigTrakt    = appconfig.Trakt{
-		Email:        stringPointer(""),
-		Password:     stringPointer(""),
-		ClientID:     stringPointer(""),
-		ClientSecret: stringPointer(""),
+		Email:        pointer(""),
+		Password:     pointer(""),
+		ClientID:     pointer(""),
+		ClientSecret: pointer(""),
 	}
 	dummyConfig = traktConfig{
 		Trakt:    dummyAppConfigTrakt,
@@ -95,6 +91,14 @@ var (
 		},
 		{
 			Type: entities.TraktItemTypeSeason,
+		},
+		{
+			Type: entities.TraktItemTypePerson,
+			Person: entities.TraktItemSpec{
+				IDMeta: entities.TraktIDMeta{
+					IMDb: "nm1330560",
+				},
+			},
 		},
 	}
 	dummyRequestFields = requestFields{
@@ -273,7 +277,7 @@ func TestTraktClient_WatchlistGet(t *testing.T) {
 				assertions.NoError(err)
 				assertions.Equal("watchlist", list.IDMeta.Slug)
 				assertions.Equal(true, list.IsWatchlist)
-				assertions.Equal(3, len(list.ListItems))
+				assertions.Equal(4, len(list.ListItems))
 			},
 		},
 		{
@@ -531,7 +535,7 @@ func TestTraktClient_ListGet(t *testing.T) {
 				assertions.NoError(err)
 				assertions.Equal(dummyListID, list.IDMeta.Slug)
 				assertions.Equal(false, list.IsWatchlist)
-				assertions.Equal(3, len(list.ListItems))
+				assertions.Equal(4, len(list.ListItems))
 			},
 		},
 		{
@@ -993,74 +997,6 @@ func TestTraktClient_ListAdd(t *testing.T) {
 			tt.requirements()
 			c := buildTestTraktClient(tt.fields.config)
 			err := c.ListAdd(tt.args.listID, tt.args.listName)
-			tt.assertions(assert.New(t), err)
-		})
-	}
-}
-
-func TestTraktClient_ListRemove(t *testing.T) {
-	type fields struct {
-		config traktConfig
-	}
-	type args struct {
-		listID string
-	}
-	tests := []struct {
-		name         string
-		fields       fields
-		args         args
-		requirements func()
-		assertions   func(*assert.Assertions, error)
-	}{
-		{
-			name: "successfully remove list",
-			fields: fields{
-				config: dummyConfig,
-			},
-			args: args{
-				listID: dummyListID,
-			},
-			requirements: func() {
-				httpmock.RegisterResponder(
-					http.MethodDelete,
-					fmt.Sprintf(traktPathBaseAPI+traktPathUserList, dummyUsername, dummyListID),
-					httpmock.NewJsonResponderOrPanic(http.StatusNoContent, nil),
-				)
-			},
-			assertions: func(assertions *assert.Assertions, err error) {
-				assertions.NoError(err)
-			},
-		},
-		{
-			name: "failure removing list",
-			fields: fields{
-				config: dummyConfig,
-			},
-			args: args{
-				listID: dummyListID,
-			},
-			requirements: func() {
-				httpmock.RegisterResponder(
-					http.MethodDelete,
-					fmt.Sprintf(traktPathBaseAPI+traktPathUserList, dummyUsername, dummyListID),
-					httpmock.NewJsonResponderOrPanic(http.StatusInternalServerError, nil),
-				)
-			},
-			assertions: func(assertions *assert.Assertions, err error) {
-				assertions.Error(err)
-				var apiError *ApiError
-				assertions.True(errors.As(err, &apiError))
-				assertions.Equal(http.StatusInternalServerError, apiError.StatusCode)
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			httpmock.Activate()
-			defer httpmock.DeactivateAndReset()
-			tt.requirements()
-			c := buildTestTraktClient(tt.fields.config)
-			err := c.ListRemove(tt.args.listID)
 			tt.assertions(assert.New(t), err)
 		})
 	}
@@ -1796,7 +1732,7 @@ func TestTraktClient_ActivateAuthorize(t *testing.T) {
 				httpmock.RegisterResponder(
 					http.MethodPost,
 					traktPathBaseBrowser+traktPathActivateAuthorize,
-					httpmock.NewStringResponder(http.StatusOK, `<a id="desktop-user-avatar" href="/users/cecobask"></a>`),
+					httpmock.NewStringResponder(http.StatusOK, `<a href="/logout">Sign Out</a>`),
 				)
 			},
 			assertions: func(assertions *assert.Assertions, err error) {
@@ -1823,7 +1759,7 @@ func TestTraktClient_ActivateAuthorize(t *testing.T) {
 			},
 		},
 		{
-			name: "failure scraping username",
+			name: "failure finding logout selector",
 			args: args{
 				authenticityToken: dummyAuthenticityToken,
 			},
@@ -1831,29 +1767,11 @@ func TestTraktClient_ActivateAuthorize(t *testing.T) {
 				httpmock.RegisterResponder(
 					http.MethodPost,
 					traktPathBaseBrowser+traktPathActivateAuthorize,
-					httpmock.NewJsonResponderOrPanic(http.StatusOK, nil),
+					httpmock.NewStringResponder(http.StatusOK, ""),
 				)
 			},
 			assertions: func(assertions *assert.Assertions, err error) {
-				assertions.Error(err)
-				assertions.Contains(err.Error(), "failure scraping")
-			},
-		},
-		{
-			name: "failure parsing scrape result to username",
-			args: args{
-				authenticityToken: dummyAuthenticityToken,
-			},
-			requirements: func() {
-				httpmock.RegisterResponder(
-					http.MethodPost,
-					traktPathBaseBrowser+traktPathActivateAuthorize,
-					httpmock.NewStringResponder(http.StatusOK, `<a id="desktop-user-avatar" href="invalid"></a>`),
-				)
-			},
-			assertions: func(assertions *assert.Assertions, err error) {
-				assertions.Error(err)
-				assertions.Contains(err.Error(), "failure scraping")
+				assertions.Contains(err.Error(), "failure finding selector")
 			},
 		},
 	}
@@ -2019,12 +1937,17 @@ func TestTraktClient_Hydrate(t *testing.T) {
 				httpmock.RegisterResponder(
 					http.MethodPost,
 					traktPathBaseBrowser+traktPathActivateAuthorize,
-					httpmock.NewStringResponder(http.StatusOK, `<a id="desktop-user-avatar" href="/users/cecobask"></a>`),
+					httpmock.NewStringResponder(http.StatusOK, `<a href="/logout">Sign Out</a>`),
 				)
 				httpmock.RegisterResponder(
 					http.MethodPost,
 					traktPathBaseAPI+traktPathAuthTokens,
 					httpmock.NewStringResponder(http.StatusOK, `{"access_token":"access-token-value"}`),
+				)
+				httpmock.RegisterResponder(
+					http.MethodGet,
+					traktPathBaseAPI+traktPathUserInfo,
+					httpmock.NewStringResponder(http.StatusOK, `{"username":"cecobask"}`),
 				)
 			},
 			assertions: func(assertions *assert.Assertions, err error) {
@@ -2221,7 +2144,7 @@ func TestTraktClient_Hydrate(t *testing.T) {
 				httpmock.RegisterResponder(
 					http.MethodPost,
 					traktPathBaseBrowser+traktPathActivateAuthorize,
-					httpmock.NewStringResponder(http.StatusOK, `<a id="desktop-user-avatar" href="/users/cecobask"></a>`),
+					httpmock.NewStringResponder(http.StatusOK, `<a href="/logout">Sign Out</a>`),
 				)
 				httpmock.RegisterResponder(
 					http.MethodPost,
@@ -2232,6 +2155,55 @@ func TestTraktClient_Hydrate(t *testing.T) {
 			assertions: func(assertions *assert.Assertions, err error) {
 				assertions.Error(err)
 				assertions.Contains(err.Error(), "failure exchanging trakt device code for access token")
+			},
+		},
+		{
+			name: "failure getting user info",
+			requirements: func() {
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseAPI+traktPathAuthCodes,
+					httpmock.NewStringResponder(http.StatusOK, `{"device_code":"`+dummyDeviceCode+`","user_code":"`+dummyUserCode+`"}`),
+				)
+				httpmock.RegisterResponder(
+					http.MethodGet,
+					traktPathBaseBrowser+traktPathAuthSignIn,
+					httpmock.NewStringResponder(http.StatusOK, `<div id="new_user"><input type="hidden" name="authenticity_token" value="authenticity-token-value"></div>`),
+				)
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseBrowser+traktPathAuthSignIn,
+					httpmock.NewJsonResponderOrPanic(http.StatusOK, nil),
+				)
+				httpmock.RegisterResponder(
+					http.MethodGet,
+					traktPathBaseBrowser+traktPathActivate,
+					httpmock.NewStringResponder(http.StatusOK, `<div id="auth-form-wrapper"><form class="form-signin"><input type="hidden" name="authenticity_token" value="authenticity-token-value"></form></div>`),
+				)
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseBrowser+traktPathActivate,
+					httpmock.NewStringResponder(http.StatusOK, `<div id="auth-form-wrapper"><div class="form-signin less-top"><div><form><input type="hidden" name="authenticity_token" value="authenticity-token-value"></form></div></div></div>`),
+				)
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseBrowser+traktPathActivateAuthorize,
+					httpmock.NewStringResponder(http.StatusOK, `<a href="/logout">Sign Out</a>`),
+				)
+				httpmock.RegisterResponder(
+					http.MethodPost,
+					traktPathBaseAPI+traktPathAuthTokens,
+					httpmock.NewStringResponder(http.StatusOK, `{"access_token":"access-token-value"}`),
+				)
+				httpmock.RegisterResponder(
+					http.MethodGet,
+					traktPathBaseAPI+traktPathUserInfo,
+					httpmock.NewJsonResponderOrPanic(http.StatusInternalServerError, nil),
+				)
+			},
+			assertions: func(assertions *assert.Assertions, err error) {
+				assertions.Error(err)
+				assertions.Contains(err.Error(), "failure getting trakt user info")
 			},
 		},
 	}

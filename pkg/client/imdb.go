@@ -187,14 +187,21 @@ func (c *IMDbClient) hydrate() error {
 		return fmt.Errorf("failure extracting watchlist id from href: %w", err)
 	}
 	c.config.watchlistID = watchlistID
-	if len(*c.config.Lists) == 0 {
-		lids, err := c.lidsScrape()
+	lids := slices.DeleteFunc(*c.config.Lists, func(lid string) bool {
+		if lid == watchlistID {
+			c.logger.Warn("removing watchlist id from provided lists; please use config option SYNC_WATCHLIST instead")
+			return true
+		}
+		return false
+	})
+	if len(lids) == 0 {
+		lids, err = c.lidsScrape()
 		if err != nil {
 			return fmt.Errorf("failure scraping list ids: %w", err)
 		}
-		c.config.Lists = &lids
 	}
-	c.logger.Info("hydrated imdb client", slog.String("username", username), slog.String("userID", userID), slog.String("watchlistID", watchlistID), slog.Any("lists", c.config.Lists))
+	c.config.Lists = &lids
+	c.logger.Info("hydrated imdb client", slog.String("username", username), slog.String("userID", userID), slog.String("watchlistID", watchlistID), slog.Any("lists", lids))
 	return nil
 }
 
@@ -290,7 +297,7 @@ func (c *IMDbClient) ratingsDownload(resource *rod.Element) ([]entities.IMDbItem
 	if err = downloadButton.Click(proto.InputMouseButtonLeft, 1); err != nil {
 		return nil, fmt.Errorf("failure clicking on download button: %w", err)
 	}
-	items, err := transformRatingsData(wait())
+	items, err := transformData(wait())
 	if err != nil {
 		return nil, fmt.Errorf("failure transforming ratings data: %w", err)
 	}
@@ -323,7 +330,7 @@ func (c *IMDbClient) listDownload(resource *rod.Element) (*entities.IMDbList, er
 	if err = downloadButton.Click(proto.InputMouseButtonLeft, 1); err != nil {
 		return nil, fmt.Errorf("failure clicking on download button: %w", err)
 	}
-	items, err := transformListData(wait())
+	items, err := transformData(wait())
 	if err != nil {
 		return nil, fmt.Errorf("failure transforming list data: %w", err)
 	}
@@ -552,37 +559,88 @@ func isRatingsHyperlink(href, userID string) bool {
 	return strings.HasPrefix(href, prefix)
 }
 
-func transformListData(data []byte) ([]entities.IMDbItem, error) {
-	csvReader := csv.NewReader(bytes.NewReader(data))
-	csvReader.LazyQuotes = true
-	csvReader.FieldsPerRecord = -1
-	csvData, err := csvReader.ReadAll()
-	if err != nil {
-		return nil, fmt.Errorf("failure reading list csv records: %w", err)
-	}
-	var items []entities.IMDbItem
-	for i, record := range csvData {
-		if i > 0 {
-			items = append(items, entities.IMDbItem{
-				ID:        record[1],
-				TitleType: record[8],
-			})
-		}
-	}
-	return items, nil
+func isPeopleList(header []string) bool {
+	return slices.Equal(header, []string{
+		"Position",
+		"Const",
+		"Created",
+		"Modified",
+		"Description",
+		"Name",
+		"Known For",
+		"Birth Date",
+	})
 }
 
-func transformRatingsData(data []byte) ([]entities.IMDbItem, error) {
+func isTitlesList(header []string) bool {
+	return slices.Equal(header, []string{
+		"Position",
+		"Const",
+		"Created",
+		"Modified",
+		"Description",
+		"Title",
+		"Original Title",
+		"URL",
+		"Title Type",
+		"IMDb Rating",
+		"Runtime (mins)",
+		"Year",
+		"Genres",
+		"Num Votes",
+		"Release Date",
+		"Directors",
+		"Your Rating",
+		"Date Rated",
+	})
+}
+
+func isRatingsList(header []string) bool {
+	return slices.Equal(header, []string{
+		"Const",
+		"Your Rating",
+		"Date Rated",
+		"Title",
+		"Original Title",
+		"URL",
+		"Title Type",
+		"IMDb Rating",
+		"Runtime (mins)",
+		"Year",
+		"Genres",
+		"Num Votes",
+		"Release Date",
+		"Directors",
+	})
+}
+
+func transformData(data []byte) ([]entities.IMDbItem, error) {
 	csvReader := csv.NewReader(bytes.NewReader(data))
 	csvReader.LazyQuotes = true
 	csvReader.FieldsPerRecord = -1
 	csvData, err := csvReader.ReadAll()
 	if err != nil {
-		return nil, fmt.Errorf("failure reading ratings csv records: %w", err)
+		return nil, fmt.Errorf("failure reading csv records: %w", err)
 	}
-	var ratings []entities.IMDbItem
-	for i, record := range csvData {
-		if i > 0 {
+	if len(csvData) == 0 {
+		return nil, fmt.Errorf("expected csv records to have at least header row, but got empty result")
+	}
+	var (
+		header  = csvData[0]
+		records = csvData[1:]
+		items   = make([]entities.IMDbItem, len(records))
+	)
+	if isTitlesList(header) {
+		for i, record := range records {
+			items[i] = entities.IMDbItem{
+				ID:   record[1],
+				Kind: record[8],
+			}
+		}
+		return items, nil
+	}
+	if isRatingsList(header) {
+		for i, record := range records {
 			rating, err := strconv.Atoi(record[1])
 			if err != nil {
 				return nil, fmt.Errorf("failure parsing rating value to integer: %w", err)
@@ -591,15 +649,25 @@ func transformRatingsData(data []byte) ([]entities.IMDbItem, error) {
 			if err != nil {
 				return nil, fmt.Errorf("failure parsing rating date: %w", err)
 			}
-			ratings = append(ratings, entities.IMDbItem{
+			items[i] = entities.IMDbItem{
 				ID:         record[0],
-				TitleType:  record[6],
+				Kind:       record[6],
 				Rating:     &rating,
 				RatingDate: &ratingDate,
-			})
+			}
 		}
+		return items, nil
 	}
-	return ratings, nil
+	if isPeopleList(header) {
+		for i, record := range records {
+			items[i] = entities.IMDbItem{
+				ID:   record[1],
+				Kind: "Person",
+			}
+		}
+		return items, nil
+	}
+	return nil, fmt.Errorf("unrecognized list type with header %s", header)
 }
 
 func idExtract(href string) (string, error) {
